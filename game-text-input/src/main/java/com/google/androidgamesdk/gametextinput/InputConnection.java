@@ -293,7 +293,11 @@ public class InputConnection
   @Override
   public boolean setSelection(int start, int end) {
     Log.d(TAG, "setSelection: " + start + ":" + end);
+    // The input method moved the selection: the listener hears the new
+    // state, and the input method is told where the selection now stands.
     this.setSelectionInternal(start, end);
+    this.stateUpdated(false);
+    this.informIMM();
     return true;
   }
 
@@ -320,7 +324,7 @@ public class InputConnection
       int actualNewCursorPosition = newCursorPosition > 0
           ? Math.min(composingRegion.second + newCursorPosition - 1, this.mEditable.length())
           : Math.max(0, composingRegion.first + newCursorPosition);
-      this.setSelection(actualNewCursorPosition, actualNewCursorPosition);
+      this.setSelectionInternal(actualNewCursorPosition, actualNewCursorPosition);
       this.stateUpdated(false);
       return true;
     }
