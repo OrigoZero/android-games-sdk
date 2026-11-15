@@ -31,6 +31,7 @@ import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.TextAttribute;
 import androidx.annotation.Keep;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -354,6 +355,40 @@ public class InputConnection
             .toString());
     this.setComposingText(text, newCursorPosition);
     this.finishComposingText();
+    this.informIMM();
+    return true;
+  }
+
+  // From BaseInputConnection (Android 14 and later)
+  /**
+   * Replace the text between start and end with text, the way commitText replaces the region
+   * being composed: whatever was being composed is finished, the caret is placed by
+   * newCursorPosition as commitText places it, and the listener is told the new state.
+   *
+   * <p>BaseInputConnection's own replaceText edits the editable without placing GameTextInput's
+   * selection and without telling the listener, so the text the application holds never takes
+   * the replacement.
+   */
+  @Override
+  public boolean replaceText(int start, int end, CharSequence text, int newCursorPosition,
+      TextAttribute textAttribute) {
+    Log.d(TAG, String.format("replaceText: %d:%d='%s' newCursorPosition=%d",
+        start, end, text, newCursorPosition));
+    if (text == null || start < 0 || end < 0) {
+      return false;
+    }
+    int length = this.mEditable.length();
+    int first = Math.min(Math.min(start, end), length);
+    int second = Math.min(Math.max(start, end), length);
+    this.setComposingRegionInternal(-1, -1);
+    this.mEditable.replace(first, second, text);
+    // The editable's filters may take less of text than it holds.
+    int inserted = this.mEditable.length() - (length - (second - first));
+    int caret = newCursorPosition > 0
+        ? Math.min(first + inserted + newCursorPosition - 1, this.mEditable.length())
+        : Math.max(0, first + newCursorPosition);
+    this.setSelectionInternal(caret, caret);
+    this.stateUpdated(false);
     this.informIMM();
     return true;
   }
