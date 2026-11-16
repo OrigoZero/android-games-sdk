@@ -99,6 +99,8 @@ public class InputConnection
   private final BitSet dontInsertChars;
   private Listener listener;
   private boolean mSoftKeyboardActive;
+  // The buffer's state as the listener last heard it, or as setState last set it.
+  private State mReportedState;
 
   /*
    * This class filters EOL characters from the input. For details of how InputFilter.filter
@@ -252,6 +254,9 @@ public class InputConnection
     this.mEditable.insert(0, (CharSequence) state.text);
     this.setSelectionInternal(state.selectionStart, state.selectionEnd);
     this.setComposingRegionInternal(state.composingRegionStart, state.composingRegionEnd);
+    // The application set this state itself, so the listener hears the buffer
+    // again only once an edit changes it.
+    this.mReportedState = this.currentState();
     this.informIMM();
   }
 
@@ -599,11 +604,27 @@ public class InputConnection
     }
   }
 
-  private final void stateUpdated(boolean dismissed) {
+  private final State currentState() {
     Pair selection = this.getSelection();
     Pair cr = this.getComposingRegion();
-    State state = new State(
+    return new State(
         this.mEditable.toString(), selection.first, selection.second, cr.first, cr.second);
+  }
+
+  /**
+   * Tell the listener the buffer's state, when it differs from the state the listener last heard
+   * or the application last set. An input method call that leaves the buffer as it stood (a
+   * finishComposingText with nothing composed, a selection set where it already stands) reports
+   * nothing: the state it would report is one the application already holds, and by the time the
+   * application reads it the application may have set a newer one, which the old state would
+   * then undo.
+   */
+  private final void stateUpdated(boolean dismissed) {
+    State state = this.currentState();
+    if (!dismissed && state.equals(this.mReportedState)) {
+      return;
+    }
+    this.mReportedState = state;
 
     // Keep a reference to the listener to avoid a race condition when setting the listener.
     Listener listener = this.listener;
