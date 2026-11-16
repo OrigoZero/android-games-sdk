@@ -22,6 +22,7 @@ import android.os.Build.VERSION_CODES;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.SpannableString;
+import android.text.SpannedString;
 import android.text.Spanned;
 import android.text.SpannableStringBuilder;
 import android.text.TextUtils;
@@ -30,6 +31,8 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.TextAttribute;
 import androidx.annotation.Keep;
@@ -101,6 +104,8 @@ public class InputConnection
   private boolean mSoftKeyboardActive;
   // The buffer's state as the listener last heard it, or as setState last set it.
   private State mReportedState;
+  // The request of an input method that asked to be told of each change to the extracted text.
+  private ExtractedTextRequest mExtractedTextMonitor;
 
   /*
    * This class filters EOL characters from the input. For details of how InputFilter.filter
@@ -258,6 +263,7 @@ public class InputConnection
     // again only once an edit changes it.
     this.mReportedState = this.currentState();
     this.informIMM();
+    this.reportExtractedText();
   }
 
   /**
@@ -461,6 +467,24 @@ public class InputConnection
   }
 
   // From BaseInputConnection
+  /**
+   * The buffer's text and selection, which an input method reads to move the caret over the text
+   * (the Samsung keyboard's arrow keys read it). An input method asking with
+   * GET_EXTRACTED_TEXT_MONITOR is told the extracted text again at each change of the buffer.
+   */
+  @Override
+  public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
+    Log.d(TAG, "getExtractedText: " + flags);
+    if (request == null) {
+      return null;
+    }
+    if ((flags & GET_EXTRACTED_TEXT_MONITOR) != 0) {
+      this.mExtractedTextMonitor = request;
+    }
+    return this.extractedText(request);
+  }
+
+  // From BaseInputConnection
   @Override
   public CharSequence getSelectedText(int flags) {
     Log.d(TAG, "getSelectedText: " + flags);
@@ -500,7 +524,33 @@ public class InputConnection
   @Override
   public void closeConnection() {
     Log.d(TAG, "closeConnection");
+    this.mExtractedTextMonitor = null;
     super.closeConnection();
+  }
+
+  private ExtractedText extractedText(ExtractedTextRequest request) {
+    ExtractedText extracted = new ExtractedText();
+    extracted.text = (request.flags & GET_TEXT_WITH_STYLES) != 0
+        ? new SpannedString(this.mEditable)
+        : this.mEditable.toString();
+    extracted.startOffset = 0;
+    extracted.partialStartOffset = -1;
+    extracted.partialEndOffset = -1;
+    Pair selection = this.getSelection();
+    int length = this.mEditable.length();
+    extracted.selectionStart = selection.first == -1 ? length : selection.first;
+    extracted.selectionEnd = selection.second == -1 ? length : selection.second;
+    extracted.flags = (this.settings.mEditorInfo.inputType & EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE) == 0
+        ? ExtractedText.FLAG_SINGLE_LINE
+        : 0;
+    return extracted;
+  }
+
+  private final void reportExtractedText() {
+    ExtractedTextRequest monitor = this.mExtractedTextMonitor;
+    if (monitor != null) {
+      this.imm.updateExtractedText(this.targetView, monitor.token, this.extractedText(monitor));
+    }
   }
 
   private final void informIMM() {
@@ -660,6 +710,7 @@ public class InputConnection
       return;
     }
     this.mReportedState = state;
+    this.reportExtractedText();
 
     // Keep a reference to the listener to avoid a race condition when setting the listener.
     Listener listener = this.listener;
