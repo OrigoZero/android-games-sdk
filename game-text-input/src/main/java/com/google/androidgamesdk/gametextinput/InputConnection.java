@@ -437,13 +437,27 @@ public class InputConnection
   }
 
   // From BaseInputConnection
+  /**
+   * Take a key the input method sends. A key that edits the buffer (a character it types, Delete,
+   * Backspace) edits it; any other key (an arrow, Home, End, Tab with no character, Escape) goes on
+   * to the view and the activity as the key it is, the way BaseInputConnection sends it, so the
+   * application moves its caret or acts on it and sets the buffer to match.
+   */
   @Override
   public boolean sendKeyEvent(KeyEvent event) {
-    if (settings.mForwardKeyEvents && VERSION.SDK_INT >= 24
-        && this.settings.mEditorInfo.inputType == 0 && event != null) {
-      this.imm.dispatchKeyEventFromInputMethod(this.targetView, event);
+    if (event == null) {
+      return false;
     }
-    return processKeyEvent(event);
+    if (settings.mForwardKeyEvents && VERSION.SDK_INT >= 24
+        && this.settings.mEditorInfo.inputType == 0) {
+      this.imm.dispatchKeyEventFromInputMethod(this.targetView, event);
+      return processKeyEvent(event);
+    }
+    if (processKeyEvent(event)) {
+      return true;
+    }
+    super.sendKeyEvent(event);
+    return true;
   }
 
   // From BaseInputConnection
@@ -522,7 +536,23 @@ public class InputConnection
     }
   }
 
+  /**
+   * Whether the key of event edits the buffer: a character it types, Backspace or Delete. Every
+   * other key (an arrow, Home, End, a modifier, a key typing no character) is the application's,
+   * pressed and released alike.
+   */
+  private boolean editsBuffer(KeyEvent event) {
+    int code = event.getKeyCode();
+    if (code == KeyEvent.KEYCODE_DEL || code == KeyEvent.KEYCODE_FORWARD_DEL) {
+      return true;
+    }
+    return !dontInsertChars.get(code) && event.getUnicodeChar() != 0;
+  }
+
   private boolean processKeyEvent(KeyEvent event) {
+    if (event == null) {
+      return false;
+    }
     Log.d(TAG, String.format("processKeyEvent(key=%d) text=%s", event.getKeyCode(), this.mEditable.toString()));
 
     // Filter out Enter keys if multi-line mode is disabled.
@@ -533,10 +563,12 @@ public class InputConnection
       return true;
     }
 
-    Pair selection = this.getSelection();
-    if (event == null) {
+    if (!editsBuffer(event)) {
       return false;
-    } else if (event.getAction() != 0) {
+    }
+
+    Pair selection = this.getSelection();
+    if (event.getAction() != KeyEvent.ACTION_DOWN) {
       return true;
     } else {
       // If no selection is set, move the selection to the end.
@@ -554,15 +586,18 @@ public class InputConnection
         Log.d(TAG, String.format("processKeyEvent: deleting selection"));
         this.mEditable.delete(selection.first, selection.second);
         modified = true;
-      } else if (event.getKeyCode() == KeyEvent.KEYCODE_DEL && selection.first > 0) {
-        this.mEditable.delete(selection.first - 1, selection.first);
-        this.stateUpdated(false);
+      } else if (event.getKeyCode() == KeyEvent.KEYCODE_DEL) {
+        if (selection.first > 0) {
+          this.mEditable.delete(selection.first - 1, selection.first);
+          this.stateUpdated(false);
+        }
         Log.d(TAG, String.format("processKeyEvent: exit after DEL, text=%s", this.mEditable.toString()));
         return true;
-      } else if (event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL
-          && selection.first < this.mEditable.length()) {
-        this.mEditable.delete(selection.first, selection.first + 1);
-        this.stateUpdated(false);
+      } else if (event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL) {
+        if (selection.first < this.mEditable.length()) {
+          this.mEditable.delete(selection.first, selection.first + 1);
+          this.stateUpdated(false);
+        }
         Log.d(TAG, String.format("processKeyEvent: exit after FORWARD_DEL, text=%s", this.mEditable.toString()));
         return true;
       }
