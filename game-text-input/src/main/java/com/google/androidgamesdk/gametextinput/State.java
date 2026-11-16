@@ -34,4 +34,26 @@ public final class State {
   public int selectionEnd;
   public int composingRegionStart;
   public int composingRegionEnd;
+
+  /** Whether other holds the same text, selection and composing region. */
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (!(other instanceof State)) {
+      return false;
+    }
+    State state = (State) other;
+    return selectionStart == state.selectionStart && selectionEnd == state.selectionEnd
+        && composingRegionStart == state.composingRegionStart
+        && composingRegionEnd == state.composingRegionEnd
+        && java.util.Objects.equals(text, state.text);
+  }
+
+  @Override
+  public int hashCode() {
+    return java.util.Objects.hash(
+        text, selectionStart, selectionEnd, composingRegionStart, composingRegionEnd);
+  }
 }
